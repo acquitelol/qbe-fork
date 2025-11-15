@@ -86,6 +86,7 @@ enum {
 	RTmp,
 	RCon,
 	RInt,
+	RStr,
 	RType, /* last kind to come out of the parser */
 	RSlot,
 	RCall,
@@ -102,6 +103,7 @@ enum {
 #define CALL(x)  (Ref){RCall, x}
 #define MEM(x)   (Ref){RMem, x}
 #define INT(x)   (Ref){RInt, (x)&0x1fffffff}
+#define STR(x)   (Ref){RStr, intern(x)}
 
 static inline int req(Ref a, Ref b)
 {
@@ -164,7 +166,7 @@ enum J {
 	X(jfisle) X(jfislt) X(jfiuge) X(jfiugt) \
 	X(jfiule) X(jfiult) X(jffeq)  X(jffge)  \
 	X(jffgt)  X(jffle)  X(jfflt)  X(jffne)  \
-	X(jffo)   X(jffuo)  X(hlt)
+	X(jffo)   X(jffuo)  X(hlt)    X(asm)
 #define X(j) J##j,
 	JMPS(X)
 #undef X
@@ -363,6 +365,7 @@ struct Con {
 		CUndef,
 		CBits,
 		CAddr,
+		CStr,
 	} type;
 	Sym sym;
 	union {
@@ -386,6 +389,7 @@ struct Lnk {
 	char export;
 	char thread;
 	char common;
+	char naked;
 	char align;
 	char *sec;
 	char *secf;

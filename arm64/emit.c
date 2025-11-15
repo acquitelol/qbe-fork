@@ -458,6 +458,13 @@ emitins(Ins *i, E *e)
 	case Odbgloc:
 		emitdbgloc(i->arg[0].val, i->arg[1].val, e->f);
 		break;
+	case Oasm: {
+		char *res = str(i->arg[0].val);
+		res++;
+		res[strlen(res) - 1] = '\0';
+		fprintf(e->f, "\t%s\n", res);
+		break;
+	}
 	}
 }
 
@@ -523,43 +530,47 @@ arm64_emitfn(Fn *fn, FILE *out)
 	if (T.apple)
 		e->fn->lnk.align = 4;
 	emitfnlnk(e->fn->name, &e->fn->lnk, e->f);
-	fputs("\thint\t#34\n", e->f);
-	framelayout(e);
 
-	if (e->fn->vararg && !T.apple) {
-		for (n=7; n>=0; n--)
-			fprintf(e->f, "\tstr\tq%d, [sp, -16]!\n", n);
-		for (n=7; n>=0; n-=2)
-			fprintf(e->f, "\tstp\tx%d, x%d, [sp, -16]!\n", n-1, n);
+	if (!fn->lnk.naked) {
+		fputs("\thint\t#34\n", e->f);
+		framelayout(e);
+
+		if (e->fn->vararg && !T.apple) {
+			for (n=7; n>=0; n--)
+				fprintf(e->f, "\tstr\tq%d, [sp, -16]!\n", n);
+			for (n=7; n>=0; n-=2)
+				fprintf(e->f, "\tstp\tx%d, x%d, [sp, -16]!\n", n-1, n);
+		}
+
+		if (e->frame + 16 <= 512)
+			fprintf(e->f,
+				"\tstp\tx29, x30, [sp, -%"PRIu64"]!\n",
+				e->frame + 16
+			);
+		else if (e->frame <= 4095)
+			fprintf(e->f,
+				"\tsub\tsp, sp, #%"PRIu64"\n"
+				"\tstp\tx29, x30, [sp, -16]!\n",
+				e->frame
+			);
+		else if (e->frame <= 65535)
+				fprintf(e->f,
+					"\tmov\tx16, #%"PRIu64"\n"
+					"\tsub\tsp, sp, x16\n"
+					"\tstp\tx29, x30, [sp, -16]!\n",
+					e->frame
+				);
+		else
+			fprintf(e->f,
+				"\tmov\tx16, #%"PRIu64"\n"
+				"\tmovk\tx16, #%"PRIu64", lsl #16\n"
+				"\tsub\tsp, sp, x16\n"
+				"\tstp\tx29, x30, [sp, -16]!\n",
+				e->frame & 0xFFFF, e->frame >> 16
+			);
+		fputs("\tmov\tx29, sp\n", e->f);
 	}
 
-	if (e->frame + 16 <= 512)
-		fprintf(e->f,
-			"\tstp\tx29, x30, [sp, -%"PRIu64"]!\n",
-			e->frame + 16
-		);
-	else if (e->frame <= 4095)
-		fprintf(e->f,
-			"\tsub\tsp, sp, #%"PRIu64"\n"
-			"\tstp\tx29, x30, [sp, -16]!\n",
-			e->frame
-		);
-	else if (e->frame <= 65535)
-		fprintf(e->f,
-			"\tmov\tx16, #%"PRIu64"\n"
-			"\tsub\tsp, sp, x16\n"
-			"\tstp\tx29, x30, [sp, -16]!\n",
-			e->frame
-		);
-	else
-		fprintf(e->f,
-			"\tmov\tx16, #%"PRIu64"\n"
-			"\tmovk\tx16, #%"PRIu64", lsl #16\n"
-			"\tsub\tsp, sp, x16\n"
-			"\tstp\tx29, x30, [sp, -16]!\n",
-			e->frame & 0xFFFF, e->frame >> 16
-		);
-	fputs("\tmov\tx29, sp\n", e->f);
 	s = (e->frame - e->padding) / 4;
 	for (r=arm64_rclob; *r>=0; r++)
 		if (e->fn->reg & BIT(*r)) {
@@ -579,6 +590,7 @@ arm64_emitfn(Fn *fn, FILE *out)
 		case Jhlt:
 			fprintf(e->f, "\tbrk\t#1000\n");
 			break;
+		case Jasm: break;
 		case Jret0:
 			s = (e->frame - e->padding) / 4;
 			for (r=arm64_rclob; *r>=0; r++)

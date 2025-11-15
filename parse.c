@@ -58,6 +58,7 @@ enum Token {
 	Texport,
 	Tthread,
 	Tcommon,
+	Tnaked,
 	Tfunc,
 	Ttype,
 	Tdata,
@@ -117,6 +118,7 @@ static char *kwmap[Ntok] = {
 	[Texport] = "export",
 	[Tthread] = "thread",
 	[Tcommon] = "common",
+	[Tnaked] = "naked",
 	[Tfunc] = "function",
 	[Ttype] = "type",
 	[Tdata] = "data",
@@ -143,7 +145,7 @@ enum {
 	TMask = 16383, /* for temps hash */
 	BMask = 8191, /* for blocks hash */
 
-	K = 11183273, /* found using tools/lexh.c */
+	K = 15286327, /* found using tools/lexh.c */
 	M = 23,
 };
 
@@ -377,6 +379,7 @@ expect(int t)
 		[Trparen] = ")",
 		[Tlbrace] = "{",
 		[Trbrace] = "}",
+		[Tstr] = "strlit",
 		[Teof] = 0,
 	};
 	char buf[128], *s1, *s2;
@@ -451,6 +454,10 @@ parseref()
 		/* fall through */
 	case Tglo:
 		c.type = CAddr;
+		c.sym.id = intern(tokval.str);
+		break;
+	case Tstr:
+		c.type = CStr;
 		c.sym.id = intern(tokval.str);
 		break;
 	}
@@ -627,10 +634,12 @@ parseline(PState ps)
 		}
 		err("label, instruction or jump expected");
 	case Trbrace:
+		if (curb && curb->jmp.type == Jasm)
+			closeblk();
 		return PEnd;
 	case Tlbl:
 		b = findblk(tokval.str);
-		if (curb && curb->jmp.type == Jxxx) {
+		if (curb && (curb->jmp.type == Jxxx || curb->jmp.type == Jasm)) {
 			closeblk();
 			curb->jmp.type = Jjmp;
 			curb->s1 = b;
@@ -696,6 +705,14 @@ parseline(PState ps)
 				err("column number too big");
 		} else
 			arg[1] = INT(0);
+		goto Ins;
+	case Oasm:
+		op = t;
+		k = Kw;
+		r = R;
+		expect(Tstr);
+		arg[0] = STR(tokval.str);
+		curb->jmp.type = Jasm;
 		goto Ins;
 	}
 	if (op == Tcall) {
@@ -1183,6 +1200,9 @@ parselnk(Lnk *lnk)
 		case Tcommon:
 			lnk->common = 1;
 			break;
+		case Tnaked:
+			lnk->naked = 1;
+			break;
 		case Tsection:
 			if (lnk->sec)
 				err("only one section allowed");
@@ -1199,6 +1219,8 @@ parselnk(Lnk *lnk)
 				err("only data may have thread linkage");
 			if (haslnk && t != Tdata && t != Tfunc)
 				err("only data and function have linkage");
+			if (lnk->naked && t != Tfunc)
+				err("only functions may be naked");
 			return t;
 		}
 }
@@ -1414,6 +1436,7 @@ printfn(Fn *fn, FILE *f)
 		case Jhlt:
 			fprintf(f, "\thlt\n");
 			break;
+		case Jasm: break;
 		case Jjmp:
 			if (b->s1 != b->link)
 				fprintf(f, "\tjmp @%s\n", b->s1->name);
